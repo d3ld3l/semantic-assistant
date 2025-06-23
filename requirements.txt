@@ -2,4 +2,4 @@ streamlit
 pandas
 openpyxl
 sentence-transformers
-requests
+torch
