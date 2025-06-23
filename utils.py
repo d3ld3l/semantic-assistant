@@ -5,29 +5,29 @@ import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
-# Улучшенная модель, работает лучше с короткими и многозначными фразами
-model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
+# Загружаем более умную модель
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-mpnet-base-v2')
 
-# Ссылки на Excel-файлы в GitHub (можно менять)
+# Ссылки на Excel-файлы
 GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-# Очистка текста
+# Простейшая предобработка текста
 def preprocess(text):
     text = str(text).lower().strip()
     text = re.sub(r"\s+", " ", text)
     return text
 
-# Загрузка Excel-файла по URL
+# Загрузка одного Excel
 def load_excel(url):
     response = requests.get(url)
     if response.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(response.content))
-
+    
     topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
     if not topic_cols:
         raise KeyError("Не найдены колонки topics")
@@ -37,7 +37,7 @@ def load_excel(url):
     df['phrase_proc'] = df['phrase'].apply(preprocess)
     return df[['phrase', 'phrase_proc', 'topics']]
 
-# Загрузка всех Excel-файлов и векторизация фраз
+# Загрузка всех Excel-файлов
 def load_all_excels():
     dfs = []
     for url in GITHUB_CSV_URLS:
@@ -48,17 +48,17 @@ def load_all_excels():
             print(f"⚠️ Ошибка с {url}: {e}")
     if not dfs:
         raise ValueError("Не удалось загрузить ни одного файла")
-    df_all = pd.concat(dfs, ignore_index=True)
-    embeddings = model.encode(df_all['phrase_proc'].tolist(), convert_to_tensor=True)
-    return df_all, embeddings
+    return pd.concat(dfs, ignore_index=True)
 
-# Семантический поиск по запросу
-def semantic_search(query, df, embeddings, top_k=5, threshold=0.5):
+# Семантический поиск
+def semantic_search(query, df, top_k=5, threshold=0.5):
     query_proc = preprocess(query)
     query_emb = model.encode(query_proc, convert_to_tensor=True)
-    sims = util.pytorch_cos_sim(query_emb, embeddings)[0]
+    phrase_embs = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
 
+    sims = util.pytorch_cos_sim(query_emb, phrase_embs)[0]
     results = []
+
     for idx, score in enumerate(sims):
         score = float(score)
         if score >= threshold:
