@@ -6,7 +6,7 @@ from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
 # Улучшенная модель, работает лучше с короткими и многозначными фразами
-model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
+model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1')
 
 # Ссылки на Excel-файлы в GitHub (можно менять)
 GITHUB_CSV_URLS = [
