@@ -1,63 +1,66 @@
 # utils.py
-
 import pandas as pd
 import requests
 import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
+import pymorphy2
+from difflib import SequenceMatcher
 
-# Рекомендованная модель для качества и скорости
-model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+# Загружаем модель
+model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')  # умнее и точнее
 
-# Ссылки на Excel-файлы в GitHub
+# Морфологический анализатор
+morph = pymorphy2.MorphAnalyzer()
+
+# Ссылки на Excel файлы в GitHub
 GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-# 🔁 Словарь синонимов (можно расширять)
-SYNONYMS = {
+# Словарь синонимов
+SYNONYM_MAP = {
     "симка": "симкарта",
+    "сим-карта": "симкарта",
     "кредитка": "кредитная карта",
-    "ноут": "ноутбук",
-    "комп": "компьютер",
-    "телик": "телевизор",
-    "айфон": "iphone",
-    "андроид": "android",
-    "видос": "видео",
-    "фотка": "фотография"
+    "дебетовка": "дебетовая карта",
+    "дебетка": "дебетовая карта",
+    "налик": "наличные",
+    "страховка": "страхование",
+    "отказаться": "отказ",
+    "вопрос": "информация",
+    "узнать": "информация"
 }
 
-# 🔧 Нормализация текста + замена синонимов
-def normalize_synonyms(text):
-    for word, replacement in SYNONYMS.items():
-        text = re.sub(rf"\b{re.escape(word)}\b", replacement, text)
-    return text
-
+# Нормализация и замена синонимов
 def preprocess(text):
     text = str(text).lower().strip()
-    text = normalize_synonyms(text)
     text = re.sub(r"\s+", " ", text)
-    return text
+    for word, replacement in SYNONYM_MAP.items():
+        text = text.replace(word, replacement)
+    words = text.split()
+    lemmas = [morph.parse(word)[0].normal_form for word in words]
+    return " ".join(lemmas)
 
-# 📥 Загрузка одного Excel-файла
+# Загрузка и подготовка Excel
 def load_excel(url):
     response = requests.get(url)
     if response.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(response.content))
-    
+
     topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
     if not topic_cols:
         raise KeyError("Не найдены колонки topics")
 
     df = df[['phrase'] + topic_cols]
-    df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
+    df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x if t], axis=1)
     df['phrase_proc'] = df['phrase'].apply(preprocess)
     return df[['phrase', 'phrase_proc', 'topics']]
 
-# 🔄 Загрузка всех файлов
+# Загрузка всех Excel файлов
 def load_all_excels():
     dfs = []
     for url in GITHUB_CSV_URLS:
@@ -67,11 +70,11 @@ def load_all_excels():
         except Exception as e:
             print(f"⚠️ Ошибка с {url}: {e}")
     if not dfs:
-        raise ValueError("❌ Не удалось загрузить ни одного файла")
+        raise ValueError("Не удалось загрузить ни одного файла")
     return pd.concat(dfs, ignore_index=True)
 
-# 🔍 Семантический поиск
-def semantic_search(query, df, top_k=5, threshold=0.5):
+# Поиск
+def semantic_search(query, df, top_k=5, threshold=0.4):
     query_proc = preprocess(query)
     query_emb = model.encode(query_proc, convert_to_tensor=True)
     phrase_embs = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
@@ -84,7 +87,9 @@ def semantic_search(query, df, top_k=5, threshold=0.5):
         if score >= threshold:
             phrase = df.iloc[idx]['phrase']
             topics = df.iloc[idx]['topics']
-            results.append((score, phrase, topics))
+            fuzzy = SequenceMatcher(None, query_proc, df.iloc[idx]['phrase_proc']).ratio()
+            final_score = (score * 0.7 + fuzzy * 0.3)
+            results.append((final_score, phrase, topics))
 
     results.sort(key=lambda x: x[0], reverse=True)
     return results[:top_k]
