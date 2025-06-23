@@ -1,70 +1,37 @@
-# utils.py
-import pandas as pd
-import requests
-import re
-from io import BytesIO
-from sentence_transformers import SentenceTransformer, util
+# app.py
+import streamlit as st
+from utils import load_all_excels, semantic_search
 
-# Улучшенная модель, работает лучше с короткими и многозначными фразами
-model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1')
+st.set_page_config(page_title="Семантический помощник", layout="wide")
+st.title("🤖 Семантический ассистент")
 
-# Ссылки на Excel-файлы в GitHub (можно менять)
-GITHUB_CSV_URLS = [
-    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
-    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
-    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
-]
+# Загрузка базы данных
+@st.cache_data
+def load_data():
+    return load_all_excels()
 
-# Очистка текста
-def preprocess(text):
-    text = str(text).lower().strip()
-    text = re.sub(r"\s+", " ", text)
-    return text
+df = load_data()
 
-# Загрузка Excel-файла по URL
-def load_excel(url):
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise ValueError(f"Ошибка загрузки {url}")
-    df = pd.read_excel(BytesIO(response.content))
+# Ввод запроса
+query = st.text_input("Введите запрос:")
 
-    topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
-    if not topic_cols:
-        raise KeyError("Не найдены колонки topics")
+if query:
+    with st.spinner("Анализируем..."):
+        results = semantic_search(query, df)
 
-    df = df[['phrase'] + topic_cols]
-    df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
-    df['phrase_proc'] = df['phrase'].apply(preprocess)
-    return df[['phrase', 'phrase_proc', 'topics']]
-
-# Загрузка всех Excel-файлов и векторизация фраз
-def load_all_excels():
-    dfs = []
-    for url in GITHUB_CSV_URLS:
-        try:
-            df = load_excel(url)
-            dfs.append(df)
-        except Exception as e:
-            print(f"⚠️ Ошибка с {url}: {e}")
-    if not dfs:
-        raise ValueError("Не удалось загрузить ни одного файла")
-    df_all = pd.concat(dfs, ignore_index=True)
-    embeddings = model.encode(df_all['phrase_proc'].tolist(), convert_to_tensor=True)
-    return df_all, embeddings
-
-# Семантический поиск по запросу
-def semantic_search(query, df, embeddings, top_k=5, threshold=0.5):
-    query_proc = preprocess(query)
-    query_emb = model.encode(query_proc, convert_to_tensor=True)
-    sims = util.pytorch_cos_sim(query_emb, embeddings)[0]
-
-    results = []
-    for idx, score in enumerate(sims):
-        score = float(score)
-        if score >= threshold:
-            phrase = df.iloc[idx]['phrase']
-            topics = df.iloc[idx]['topics']
-            results.append((score, phrase, topics))
-
-    results.sort(key=lambda x: x[0], reverse=True)
-    return results[:top_k]
+    if not results:
+        st.warning("Ничего не найдено 😕")
+    else:
+        st.success("Найдено совпадений: {}".format(len(results)))
+        for i, (score, phrase, topics) in enumerate(results):
+            color = "#d1e7dd" if i == 0 else "#f8f9fa"
+            st.markdown(
+                f"""
+                <div style="background-color:{color}; padding:10px; border-radius:10px; margin-bottom:10px;">
+                <strong>Фраза:</strong> {phrase}<br>
+                <strong>Совпадение:</strong> {score:.2f}<br>
+                <strong>Темы:</strong> {", ".join(topics)}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
