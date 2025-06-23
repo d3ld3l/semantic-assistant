@@ -1,27 +1,47 @@
 # utils.py
+
 import pandas as pd
 import requests
 import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
-# Загружаем более умную модель
-model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-mpnet-base-v2')
+# Рекомендованная модель для качества и скорости
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
-# Ссылки на Excel-файлы
+# Ссылки на Excel-файлы в GitHub
 GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-# Простейшая предобработка текста
+# 🔁 Словарь синонимов (можно расширять)
+SYNONYMS = {
+    "симка": "симкарта",
+    "кредитка": "кредитная карта",
+    "ноут": "ноутбук",
+    "комп": "компьютер",
+    "телик": "телевизор",
+    "айфон": "iphone",
+    "андроид": "android",
+    "видос": "видео",
+    "фотка": "фотография"
+}
+
+# 🔧 Нормализация текста + замена синонимов
+def normalize_synonyms(text):
+    for word, replacement in SYNONYMS.items():
+        text = re.sub(rf"\b{re.escape(word)}\b", replacement, text)
+    return text
+
 def preprocess(text):
     text = str(text).lower().strip()
+    text = normalize_synonyms(text)
     text = re.sub(r"\s+", " ", text)
     return text
 
-# Загрузка одного Excel
+# 📥 Загрузка одного Excel-файла
 def load_excel(url):
     response = requests.get(url)
     if response.status_code != 200:
@@ -37,7 +57,7 @@ def load_excel(url):
     df['phrase_proc'] = df['phrase'].apply(preprocess)
     return df[['phrase', 'phrase_proc', 'topics']]
 
-# Загрузка всех Excel-файлов
+# 🔄 Загрузка всех файлов
 def load_all_excels():
     dfs = []
     for url in GITHUB_CSV_URLS:
@@ -47,10 +67,10 @@ def load_all_excels():
         except Exception as e:
             print(f"⚠️ Ошибка с {url}: {e}")
     if not dfs:
-        raise ValueError("Не удалось загрузить ни одного файла")
+        raise ValueError("❌ Не удалось загрузить ни одного файла")
     return pd.concat(dfs, ignore_index=True)
 
-# Семантический поиск
+# 🔍 Семантический поиск
 def semantic_search(query, df, top_k=5, threshold=0.5):
     query_proc = preprocess(query)
     query_emb = model.encode(query_proc, convert_to_tensor=True)
