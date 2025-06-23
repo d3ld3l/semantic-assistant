@@ -1,40 +1,44 @@
 # app.py
-
 import streamlit as st
 from utils import load_all_excels, semantic_search
 
-# Заголовок страницы
-st.set_page_config(page_title="Семантический помощник", layout="wide")
-st.title("💡 Семантический ассистент")
-st.markdown("Введите запрос, чтобы получить соответствующие темы из базы знаний.")
+st.set_page_config(page_title="Семантический помощник", layout="centered")
 
-# Загрузка данных (один раз при запуске)
-@st.cache_resource
-def load_data():
-    try:
-        return load_all_excels()
-    except Exception as e:
-        st.error(f"Ошибка при загрузке данных: {e}")
-        return None
+# Заголовок
+st.title("🔍 Семантический помощник")
+st.markdown("Введите фразу, и я найду связанные темы по загруженным Excel-файлам.")
 
-df = load_data()
+# Загрузка данных (однократно)
+@st.cache_data
+def load_data_once():
+    return load_all_excels()
 
-# Ввод запроса
-query = st.text_input("🔍 Ваш запрос:")
+try:
+    df = load_data_once()
+except Exception as e:
+    st.error(f"Ошибка при загрузке данных: {e}")
+    st.stop()
 
-# Обработка запроса
-if query and df is not None:
-    with st.spinner("Анализируем..."):
-        results = semantic_search(query, df, top_k=5, threshold=0.5)
+# Поле для ввода запроса
+query = st.text_input("Ваш запрос:")
 
-        if not results:
-            st.warning("❌ Ничего не найдено по вашему запросу.")
-        else:
-            st.markdown("### ✅ Результаты:")
-            for i, (score, phrase, topics) in enumerate(results):
-                highlight = "🟩" if i == 0 else "⬜️"  # выделяем самый релевантный
-                st.markdown(f"""
-                {highlight} **Запрос:** {phrase}  
-                **Темы:** {"; ".join(topics)}  
-                **Сходство:** `{score:.2f}`
-                """)
+if query:
+    with st.spinner("Ищу подходящие темы..."):
+        results = semantic_search(query, df)
+
+    if not results:
+        st.warning("Ничего не найдено. Попробуйте переформулировать запрос.")
+    else:
+        st.markdown("### 🔎 Результаты поиска:")
+        for i, (score, phrase, topics) in enumerate(results):
+            bg_color = "#dff0d8" if i == 0 else "#f8f9fa"
+            st.markdown(
+                f"""
+                <div style="background-color: {bg_color}; padding: 10px; border-radius: 10px; margin-bottom: 10px;">
+                    <strong>Фраза:</strong> {phrase}<br>
+                    <strong>Темы:</strong> {', '.join(topics)}<br>
+                    <small><em>Сходство: {score:.2f}</em></small>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
