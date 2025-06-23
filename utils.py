@@ -4,63 +4,47 @@ import requests
 import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
-import pymorphy2
-from difflib import SequenceMatcher
 
 # Загружаем модель
-model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')  # умнее и точнее
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
-# Морфологический анализатор
-morph = pymorphy2.MorphAnalyzer()
-
-# Ссылки на Excel файлы в GitHub
+# Ссылки на файлы
 GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-# Словарь синонимов
-SYNONYM_MAP = {
+# Словарь синонимов (ручной)
+SYNONYM_DICT = {
     "симка": "симкарта",
-    "сим-карта": "симкарта",
     "кредитка": "кредитная карта",
-    "дебетовка": "дебетовая карта",
-    "дебетка": "дебетовая карта",
-    "налик": "наличные",
-    "страховка": "страхование",
-    "отказаться": "отказ",
-    "вопрос": "информация",
-    "узнать": "информация"
+    "пэй": "pay",
+    "теле2": "tele2",
 }
 
-# Нормализация и замена синонимов
 def preprocess(text):
     text = str(text).lower().strip()
     text = re.sub(r"\s+", " ", text)
-    for word, replacement in SYNONYM_MAP.items():
-        text = text.replace(word, replacement)
-    words = text.split()
-    lemmas = [morph.parse(word)[0].normal_form for word in words]
-    return " ".join(lemmas)
+    for short, full in SYNONYM_DICT.items():
+        text = text.replace(short, full)
+    return text
 
-# Загрузка и подготовка Excel
 def load_excel(url):
     response = requests.get(url)
     if response.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(response.content))
-
+    
     topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
     if not topic_cols:
         raise KeyError("Не найдены колонки topics")
 
     df = df[['phrase'] + topic_cols]
-    df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x if t], axis=1)
+    df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
     df['phrase_proc'] = df['phrase'].apply(preprocess)
     return df[['phrase', 'phrase_proc', 'topics']]
 
-# Загрузка всех Excel файлов
 def load_all_excels():
     dfs = []
     for url in GITHUB_CSV_URLS:
@@ -73,8 +57,7 @@ def load_all_excels():
         raise ValueError("Не удалось загрузить ни одного файла")
     return pd.concat(dfs, ignore_index=True)
 
-# Поиск
-def semantic_search(query, df, top_k=5, threshold=0.4):
+def semantic_search(query, df, top_k=5, threshold=0.5):
     query_proc = preprocess(query)
     query_emb = model.encode(query_proc, convert_to_tensor=True)
     phrase_embs = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
@@ -87,9 +70,16 @@ def semantic_search(query, df, top_k=5, threshold=0.4):
         if score >= threshold:
             phrase = df.iloc[idx]['phrase']
             topics = df.iloc[idx]['topics']
-            fuzzy = SequenceMatcher(None, query_proc, df.iloc[idx]['phrase_proc']).ratio()
-            final_score = (score * 0.7 + fuzzy * 0.3)
-            results.append((final_score, phrase, topics))
+            results.append((score, phrase, topics))
 
     results.sort(key=lambda x: x[0], reverse=True)
-    return results[:top_k]
+    top_results = results[:top_k]
+
+    # 🔍 Дополнительно — точные вхождения короткого слова (до 8 символов)
+    if len(query.strip().split()) == 1 and len(query.strip()) <= 8:
+        exact_matches = df[df['phrase_proc'].str.contains(rf'\b{re.escape(query_proc)}\b', regex=True)]
+        for _, row in exact_matches.iterrows():
+            if row['phrase'] not in [r[1] for r in top_results]:
+                top_results.append((0.0, row['phrase'], row['topics']))  # 0.0 — чтобы показать, что это не семантический
+
+    return top_results
