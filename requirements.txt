@@ -1,6 +1,6 @@
 streamlit
 pandas
 requests
-sentence-transformers==2.2.2
+sentence-transformers
 torch
 openpyxl
