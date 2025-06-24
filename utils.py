@@ -4,7 +4,7 @@ import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
-model = SentenceTransformer('sentence-transformers/distiluse-base-multilingual-cased-v2')
+model = SentenceTransformer('cointegrated/rubert-tiny2')
 
 GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
