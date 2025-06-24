@@ -24,4 +24,4 @@ if query:
         else:
             st.warning("Совпадений не найдено.")
     except Exception as e:
-        st.error(f"Ошибка: {e}")
+        st.error(f"Ошибка при загрузке данных: {e}")
