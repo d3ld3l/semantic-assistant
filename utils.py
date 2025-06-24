@@ -1,20 +1,23 @@
-# utils.py
 import pandas as pd
 import requests
 import re
+import json
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
-import json
+import pymorphy2
 
+# Модель семантического поиска
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+morph = pymorphy2.MorphAnalyzer()
 
+# Ссылки на Excel-файлы
 GITHUB_CSV_URLS = [
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data1.xlsx",
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data2.xlsx",
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data3.xlsx"
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-# Загрузка словаря синонимов из файла
+# Загрузка синонимов
 try:
     with open("synonyms.json", "r", encoding="utf-8") as f:
         SYNONYM_GROUPS = json.load(f)
@@ -22,30 +25,37 @@ except Exception as e:
     print(f"Ошибка загрузки синонимов: {e}")
     SYNONYM_GROUPS = []
 
-# Построим карту синонимов
-SYNONYM_MAP = {}
-for group in SYNONYM_GROUPS:
-    for word in group:
-        SYNONYM_MAP[word] = group[0]  # Все ссылаются на первый элемент
+def lemmatize(word):
+    return morph.parse(word)[0].normal_form.lower()
 
-# Обработка текста с учетом синонимов
+def build_synonym_map(groups):
+    mapping = {}
+    for group in groups:
+        norm_forms = {lemmatize(w) for w in group}
+        for form in norm_forms:
+            for synonym in norm_forms:
+                mapping[form] = synonym
+    return mapping
+
+SYNONYM_MAP = build_synonym_map(SYNONYM_GROUPS)
+
 def preprocess(text):
     text = str(text).lower().strip()
     text = re.sub(r"[-]", " ", text)
     text = re.sub(r"\s+", " ", text)
     tokens = text.split()
-    norm_tokens = [SYNONYM_MAP.get(token, token) for token in tokens]
+    norm_tokens = [SYNONYM_MAP.get(lemmatize(token), lemmatize(token)) for token in tokens]
     return " ".join(norm_tokens)
 
 def load_excel(url):
     response = requests.get(url)
     if response.status_code != 200:
-        raise ValueError(f"Ошибка загрузки {url}")
+        raise ValueError(f"Ошибка загрузки: {url}")
     df = pd.read_excel(BytesIO(response.content))
 
     topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
     if not topic_cols:
-        raise KeyError("Не найдены колонки topics")
+        raise KeyError("Не найдены колонки с темами (topics)")
 
     df = df[['phrase'] + topic_cols]
     df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
@@ -61,7 +71,7 @@ def load_all_excels():
         except Exception as e:
             print(f"⚠️ Ошибка с {url}: {e}")
     if not dfs:
-        raise ValueError("Не удалось загрузить ни одного файла")
+        raise ValueError("Не удалось загрузить ни одного Excel-файла.")
     return pd.concat(dfs, ignore_index=True)
 
 def semantic_search(query, df, top_k=5, threshold=0.5):
@@ -78,14 +88,15 @@ def semantic_search(query, df, top_k=5, threshold=0.5):
             topics = df.iloc[idx]['topics']
             results.append((score, phrase, topics))
 
-    results.sort(key=lambda x: x[0], reverse=True)
-
-    # Точный поиск по коротким словам <= 5 символов
+    # Точный поиск по коротким словам
     if len(query.strip()) <= 5:
-        matches = df[df['phrase_proc'].str.contains(rf"\\b{re.escape(query.strip().lower())}\\b")]
+        query_lemma = lemmatize(query.strip().lower())
+        query_syns = {query_lemma, SYNONYM_MAP.get(query_lemma, query_lemma)}
+        matches = df[df['phrase_proc'].apply(lambda p: any(f" {syn} " in f" {p} " for syn in query_syns))]
         for _, row in matches.iterrows():
             phrase, topics = row['phrase'], row['topics']
             if (1.0, phrase, topics) not in results:
                 results.append((1.0, phrase, topics))
 
+    results.sort(key=lambda x: x[0], reverse=True)
     return results[:top_k]
