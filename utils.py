@@ -5,51 +5,54 @@ import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
-# Модель: более умная и точная для многозначных фраз
+# Загружаем улучшенную модель
 model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
 
-# Ссылки на Excel-файлы с GitHub
+# Ссылки на Excel-файлы в GitHub
 GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-# Словарь синонимов (можно дополнять)
+# Словарь синонимов (расширяемый)
 SYNONYMS = {
-    "симка": "симкарта",
-    "кредитка": "кредитная карта",
-    "пэй": "pay",
-    "телефон": "мобильный",
-    "мобила": "мобильный",
-    "дебетовка": "дебетовая карта"
+    "симкарта": ["симка", "сим", "сим-карта"],
+    "кредитная карта": ["кредитка", "карточка"],
+    "пэй": ["pay", "пей", "пэймент"]
 }
 
-# Очистка и нормализация текста
+# Нормализация текста
 def preprocess(text):
     text = str(text).lower().strip()
     text = re.sub(r"\s+", " ", text)
-    for key, value in SYNONYMS.items():
-        text = text.replace(key, value)
     return text
 
-# Загрузка одного Excel
+# Применение синонимов
+def apply_synonyms(text):
+    text = preprocess(text)
+    for canonical, syn_list in SYNONYMS.items():
+        for syn in syn_list:
+            if syn in text:
+                text = text.replace(syn, canonical)
+    return text
+
+# Загрузка одного Excel-файла
 def load_excel(url):
     response = requests.get(url)
     if response.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(response.content))
-    
     topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
     if not topic_cols:
         raise KeyError("Не найдены колонки topics")
 
     df = df[['phrase'] + topic_cols]
     df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
-    df['phrase_proc'] = df['phrase'].apply(preprocess)
+    df['phrase_proc'] = df['phrase'].apply(lambda x: apply_synonyms(x))
     return df[['phrase', 'phrase_proc', 'topics']]
 
-# Загрузка всех Excel-файлов
+# Загрузка всех файлов
 def load_all_excels():
     dfs = []
     for url in GITHUB_CSV_URLS:
@@ -62,12 +65,12 @@ def load_all_excels():
         raise ValueError("Не удалось загрузить ни одного файла")
     return pd.concat(dfs, ignore_index=True)
 
-# Основной семантический поиск + добавочный точный поиск
+# Основной поиск
 def semantic_search(query, df, top_k=5, threshold=0.5):
-    query_proc = preprocess(query)
+    query_proc = apply_synonyms(query)
     query_emb = model.encode(query_proc, convert_to_tensor=True)
     phrase_embs = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
-    
+
     sims = util.pytorch_cos_sim(query_emb, phrase_embs)[0]
     results = []
 
@@ -79,22 +82,4 @@ def semantic_search(query, df, top_k=5, threshold=0.5):
             results.append((score, phrase, topics))
 
     results.sort(key=lambda x: x[0], reverse=True)
-    top_semantic = results[:top_k]
-
-    # Дополнительный поиск по совпадению короткого слова
-    exact_matches = []
-    if len(query_proc) <= 8:
-        for idx, row in df.iterrows():
-            if query_proc in row['phrase_proc']:
-                exact_matches.append((0.99, row['phrase'], row['topics']))
-
-    # Удаляем дубликаты
-    seen = set()
-    final_results = []
-    for item in top_semantic + exact_matches:
-        key = item[1]
-        if key not in seen:
-            final_results.append(item)
-            seen.add(key)
-
-    return final_results
+    return results[:top_k]
