@@ -9,9 +9,9 @@ from sentence_transformers import SentenceTransformer, util
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 GITHUB_CSV_URLS = [
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data1.xlsx",
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data2.xlsx",
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data3.xlsx"
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
 def load_synonyms(file_path="synonyms.json"):
