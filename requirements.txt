@@ -1,7 +1,6 @@
 streamlit
-sentence-transformers
-transformers
-torch
 pandas
-openpyxl
 requests
+sentence-transformers
+torch
+openpyxl
