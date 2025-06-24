@@ -1,6 +1,9 @@
 streamlit
 pandas
-requests
+numpy
 sentence-transformers
 torch
+razdel
+pymorphy2
+nltk
 openpyxl
