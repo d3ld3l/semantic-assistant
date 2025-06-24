@@ -1,5 +1,5 @@
 import streamlit as st
-from utils import load_all_excels, semantic_search
+from utils import load_all_excels, semantic_search, exact_word_match, load_synonyms
 
 st.set_page_config(page_title="Semantic Assistant", layout="centered")
 st.title("🤖 Semantic Assistant")
@@ -9,19 +9,21 @@ query = st.text_input("Введите ваш запрос:")
 if query:
     try:
         df = load_all_excels()
-        results = semantic_search(query, df)
+        synonyms = load_synonyms("synonyms.txt")
+        results = semantic_search(query, df, synonyms)
+        exacts = exact_word_match(query, df)
 
         if results:
-            st.markdown("### 🔍 Результаты поиска:")
+            st.markdown("### 🔍 Семантический поиск (с учетом синонимов):")
             for score, phrase, topics in results:
-                st.markdown(
-                    f'<div style="padding: 6px; background-color: #f4f4f4; border-radius: 10px; margin-bottom: 8px;">'
-                    f'<b style="color: #2a7bde">{phrase}</b><br>'
-                    f'<small>Темы: {", ".join(topics)} | Совпадение: {score:.2f}</small>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"- **{phrase}** → {', '.join(topics)} (_{score:.2f}_)")
         else:
-            st.warning("Совпадений не найдено.")
+            st.warning("Совпадений не найдено в семантическом поиске.")
+
+        if exacts:
+            st.markdown("---")
+            st.markdown("### 🎯 Точный поиск по короткому слову:")
+            for phrase, topics in exacts:
+                st.markdown(f"- **{phrase}** → {', '.join(topics)}")
     except Exception as e:
-        st.error(f"Ошибка при загрузке данных: {e}")
+        st.error(f"Ошибка: {e}")
