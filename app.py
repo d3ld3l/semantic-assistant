@@ -1,28 +1,30 @@
-# app.py
 import streamlit as st
-from utils import load_data, semantic_search
+from utils import load_all_excels, semantic_search, exact_keyword_search
 
-st.set_page_config(page_title="Semantic Assistant", layout="wide")
-st.title("🧠 Semantic Assistant")
+st.set_page_config(page_title="🔍 Semantic Assistant", layout="centered")
+st.title("🤖 Semantic Assistant")
 
-uploaded_file = st.file_uploader("Загрузите Excel-файл с базой", type=[".xlsx"])
+query = st.text_input("Введите ваш запрос:")
 
-if uploaded_file:
-    df, embeddings = load_data(uploaded_file)
+if query:
+    try:
+        df = load_all_excels()
 
-    query = st.text_input("Введите ваш запрос:")
+        # Семантический поиск
+        semantic_results = semantic_search(query, df)
 
-    if query:
-        semantic_results, keyword_matches = semantic_search(query, df, embeddings)
+        # Точный поиск по короткому слову с учётом синонимов
+        exact_results = exact_keyword_search(query, df)
 
+        # Вывод результатов семантического поиска
         if semantic_results:
-            st.markdown("### 🔍 Семантические результаты:")
-            for item in semantic_results:
-                st.markdown(f"- **{item['text']}** → {item['label']} (_{item['code']}_) ({item['score']:.2f})")
+            st.markdown("### 🧠 Семантический поиск:")
+            for score, phrase, topics in semantic_results:
+                st.markdown(f"- **{phrase}** → {', '.join(topics)} (_{score:.2f}_)")
+        else:
+            st.info("❗ Семантических совпадений не найдено.")
 
-        if keyword_matches:
-            st.markdown("### 🧩 Ключевые совпадения (точные слова):")
-            for item in keyword_matches:
-                st.markdown(f"- **{item['text']}** → {item['label']} (_{item['code']}_)")
-else:
-    st.info("Пожалуйста, загрузите файл Excel.")
+        # Вывод результатов точного поиска
+        if exact_results:
+            st.markdown("### 🎯 Точный поиск по ключевому слову:")
+            for phrase, topics in exact_results:
