@@ -1,8 +1,7 @@
 streamlit
-pandas
-requests
-openpyxl
 sentence-transformers
-scikit-learn
+transformers
 torch
-nltk
+pandas
+openpyxl
+requests
