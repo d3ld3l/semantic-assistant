@@ -1,14 +1,14 @@
+
 # app.py
 import streamlit as st
 from utils import load_all_excels, semantic_search, exact_match_results
 
-st.set_page_config(page_title="Семантический помощник", layout="wide")
+st.set_page_config(page_title="Semantic Assistant")
 
-st.title("💬 Семантический помощник")
-st.markdown("Введите запрос, и помощник найдёт подходящие фразы и темы.")
+st.title("Semantic Assistant")
+st.write("Введите фразу, чтобы найти релевантные темы.")
 
-# Загрузка данных
-@st.cache_data(show_spinner=True)
+@st.cache_data(show_spinner="Загружаю данные...")
 def load_data():
     return load_all_excels()
 
@@ -18,25 +18,22 @@ except Exception as e:
     st.error(f"Ошибка при загрузке данных: {e}")
     st.stop()
 
-# Интерфейс запроса
-query = st.text_input("Ваш запрос:")
+query = st.text_input("Введите фразу:")
 
 if query:
-    st.markdown("### 🔎 Семантический поиск")
     results = semantic_search(query, df)
+    exacts = exact_match_results(query, df)
 
-    if not results:
-        st.warning("Ничего не найдено по смыслу.")
+    if not results and not exacts:
+        st.info("Ничего не найдено.")
     else:
+        st.subheader("Результаты поиска:")
+
         for score, phrase, topics in results:
-            st.markdown(f"✅ **{phrase}** — `{', '.join(topics)}` (сходство: **{score:.2f}**)")
+            st.markdown(f"**{phrase}** — {', '.join(topics)}")
 
-    st.markdown("---")
-    st.markdown("### 🎯 Точные вхождения по ключевым словам (дополнительно)")
-    exact_matches = exact_match_results(query, df)
-
-    if not exact_matches:
-        st.info("Нет точных совпадений по словам.")
-    else:
-        for phrase, topics in exact_matches:
-            st.markdown(f"🔸 <span style='color:#3366cc;font-weight:bold'>{phrase}</span> — `{', '.join(topics)}`", unsafe_allow_html=True)
+        if exacts:
+            st.markdown("---")
+            st.subheader("Дополнительные совпадения по короткому слову:")
+            for phrase, topics in exacts:
+                st.markdown(f"`{phrase}` — {', '.join(topics)}`")
