@@ -6,7 +6,7 @@ from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
 # Модель: более умная и точная для многозначных фраз
-model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
 
 # Ссылки на Excel-файлы с GitHub
 GITHUB_CSV_URLS = [
