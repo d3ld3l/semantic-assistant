@@ -1,8 +1,10 @@
+# utils.py
 import pandas as pd
 import requests
 import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
+import json
 
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
@@ -12,35 +14,39 @@ GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-SYNONYMS = {
-    "симка": "симкарта", "симки": "симкарта", "сим-карта": "симкарта", "сим-карты": "симкарта",
-    "кредитка": "кредитная карта",
-    "пэй": "пей",
-    "заявление": "претензия",
-    "несанкционированное списание": "несанкционированное снятие", "списание": "снятие"
-}
+# Загрузка словаря синонимов из файла
+try:
+    with open("synonyms.json", "r", encoding="utf-8") as f:
+        SYNONYM_GROUPS = json.load(f)
+except Exception as e:
+    print(f"Ошибка загрузки синонимов: {e}")
+    SYNONYM_GROUPS = []
 
-def apply_synonyms(text):
-    for key, value in SYNONYMS.items():
-        pattern = re.compile(rf'\b{re.escape(key)}\b', re.IGNORECASE)
-        text = pattern.sub(value, text)
-    return text
+# Построим карту синонимов
+SYNONYM_MAP = {}
+for group in SYNONYM_GROUPS:
+    for word in group:
+        SYNONYM_MAP[word] = group[0]  # Все ссылаются на первый элемент
 
+# Обработка текста с учетом синонимов
 def preprocess(text):
-    text = str(text).lower()
-    text = apply_synonyms(text)
-    text = text.replace("-", " ")
+    text = str(text).lower().strip()
+    text = re.sub(r"[-]", " ", text)
     text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    tokens = text.split()
+    norm_tokens = [SYNONYM_MAP.get(token, token) for token in tokens]
+    return " ".join(norm_tokens)
 
 def load_excel(url):
     response = requests.get(url)
     if response.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(response.content))
+
     topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
     if not topic_cols:
         raise KeyError("Не найдены колонки topics")
+
     df = df[['phrase'] + topic_cols]
     df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
     df['phrase_proc'] = df['phrase'].apply(preprocess)
@@ -58,34 +64,28 @@ def load_all_excels():
         raise ValueError("Не удалось загрузить ни одного файла")
     return pd.concat(dfs, ignore_index=True)
 
-def semantic_search(query, df, top_k=5, threshold=0.45):
+def semantic_search(query, df, top_k=5, threshold=0.5):
     query_proc = preprocess(query)
     query_emb = model.encode(query_proc, convert_to_tensor=True)
     phrase_embs = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
-
     sims = util.pytorch_cos_sim(query_emb, phrase_embs)[0]
-    results = []
 
-    used_indices = set()
+    results = []
     for idx, score in enumerate(sims):
         score = float(score)
         if score >= threshold:
             phrase = df.iloc[idx]['phrase']
             topics = df.iloc[idx]['topics']
             results.append((score, phrase, topics))
-            used_indices.add(idx)
 
     results.sort(key=lambda x: x[0], reverse=True)
-    top_results = results[:top_k]
 
-    # ➕ Дополнительный точный поиск для коротких слов
+    # Точный поиск по коротким словам <= 5 символов
     if len(query.strip()) <= 5:
-        exact_matches = []
-        for idx, row in df.iterrows():
-            if idx in used_indices:
-                continue
-            if re.search(rf'\b{re.escape(query.lower())}\b', row['phrase'].lower()):
-                exact_matches.append((0.999, row['phrase'], row['topics']))  # score = почти 1
-        top_results.extend(exact_matches)
+        matches = df[df['phrase_proc'].str.contains(rf"\\b{re.escape(query.strip().lower())}\\b")]
+        for _, row in matches.iterrows():
+            phrase, topics = row['phrase'], row['topics']
+            if (1.0, phrase, topics) not in results:
+                results.append((1.0, phrase, topics))
 
-    return top_results
+    return results[:top_k]
