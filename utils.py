@@ -1,91 +1,79 @@
+# utils.py
 import pandas as pd
-import requests
+import numpy as np
 import re
-from io import BytesIO
+import torch
 from sentence_transformers import SentenceTransformer, util
+from razdel import tokenize
+from nltk.corpus import stopwords
+import pymorphy2
+import nltk
+nltk.download('stopwords')
 
-model = SentenceTransformer('cointegrated/rubert-tiny2')
+model = SentenceTransformer("cointegrated/rubert-tiny2")
+morph = pymorphy2.MorphAnalyzer()
+stop_words = set(stopwords.words("russian"))
 
-GITHUB_CSV_URLS = [
-    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
-    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
-    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
-]
+# Глобальный синонимичный маппинг для базовых слов
+SYNONYM_MAP = {
+    "симкарта": ["сим карта", "сим-карта", "симка", "симки", "сим"],
+    "карта": ["карточка", "карточку"],
+    "банк": ["банковский", "банка"],
+    "утеряна": ["потеряна", "пропала"]
+}
 
-def preprocess(text):
-    text = str(text).lower()
-    text = re.sub(r"[^\w\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
 
-def load_excel(url):
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise ValueError(f"Ошибка загрузки {url}")
-    df = pd.read_excel(BytesIO(response.content))
-    topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
-    if not topic_cols:
-        raise KeyError("Не найдены колонки topics")
-    df = df[['phrase'] + topic_cols]
-    df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
-    df['phrase_proc'] = df['phrase'].apply(preprocess)
-    return df[['phrase', 'phrase_proc', 'topics']]
+def normalize(text):
+    tokens = [_.text.lower() for _ in tokenize(text)]
+    lemmas = [morph.parse(t)[0].normal_form for t in tokens if t not in stop_words and t.isalpha()]
+    return " ".join(lemmas)
 
-def load_all_excels():
-    dfs = []
-    for url in GITHUB_CSV_URLS:
-        try:
-            dfs.append(load_excel(url))
-        except Exception as e:
-            print(f"⚠️ Ошибка с {url}: {e}")
-    if not dfs:
-        raise ValueError("Не удалось загрузить ни одного файла")
-    return pd.concat(dfs, ignore_index=True)
 
-def load_synonym_groups(filepath="synonyms.txt"):
-    groups = []
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            for line in f:
-                words = [preprocess(w) for w in line.strip().split(",") if w]
-                if words:
-                    groups.append(set(words))
-    except Exception as e:
-        print(f"⚠️ Ошибка загрузки синонимов: {e}")
-    return groups
+def synonym_replace(text):
+    norm_text = normalize(text)
+    for base, syns in SYNONYM_MAP.items():
+        for word in syns:
+            pattern = re.compile(rf"\b{word}\b")
+            norm_text = pattern.sub(base, norm_text)
+    return norm_text
 
-def expand_with_synonyms(text, synonym_groups):
-    tokens = preprocess(text).split()
-    expanded = set(tokens)
-    for group in synonym_groups:
-        if any(t in group for t in tokens):
-            expanded.update(group)
-    return expanded
 
-def semantic_search(query, df, synonym_groups, top_k=5, threshold=0.5):
-    query_proc = preprocess(query)
-    synonym_expanded = " ".join(expand_with_synonyms(query_proc, synonym_groups))
-    query_emb = model.encode(synonym_expanded, convert_to_tensor=True)
-    phrase_embs = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
-    sims = util.pytorch_cos_sim(query_emb, phrase_embs)[0]
+def load_data(file):
+    df = pd.read_excel(file)
+    df = df.dropna(subset=["text"])
+    df["norm_text"] = df["text"].apply(synonym_replace)
+    embeddings = model.encode(df["norm_text"].tolist(), convert_to_tensor=True, show_progress_bar=False)
+    return df, embeddings
+
+
+def semantic_search(query, df, embeddings, top_k=5):
+    norm_query = synonym_replace(query)
+    query_emb = model.encode(norm_query, convert_to_tensor=True)
+    scores = util.pytorch_cos_sim(query_emb, embeddings)[0]
+    top_results = torch.topk(scores, k=top_k)
+
     results = []
+    for score, idx in zip(top_results[0], top_results[1]):
+        results.append({
+            "text": df.iloc[idx]["text"],
+            "label": df.iloc[idx]["label"],
+            "code": df.iloc[idx]["code"],
+            "score": score.item()
+        })
 
-    for idx, score in enumerate(sims):
-        score = float(score)
-        if score >= threshold:
-            phrase = df.iloc[idx]['phrase']
-            topics = df.iloc[idx]['topics']
-            results.append((score, phrase, topics))
-    results.sort(key=lambda x: x[0], reverse=True)
-    return results[:top_k]
+    # Ключевое совпадение для коротких слов
+    keyword_matches = []
+    words = set(query.lower().split())
+    short_words = [w for w in words if len(w) <= 5]
 
-def exact_word_match(query, df, synonym_groups):
-    query_tokens = expand_with_synonyms(query, synonym_groups)
-    if len(query.strip()) > 5:
-        return []
-    matches = []
-    for _, row in df.iterrows():
-        phrase_tokens = set(row['phrase_proc'].split())
-        if any(token in phrase_tokens for token in query_tokens):
-            matches.append((row['phrase'], row['topics']))
-    return matches
+    for i, row in df.iterrows():
+        for w in short_words:
+            if re.search(rf"\b{w}\b", row["text"].lower()):
+                keyword_matches.append({
+                    "text": row["text"],
+                    "label": row["label"],
+                    "code": row["code"]
+                })
+                break
+
+    return results, keyword_matches
