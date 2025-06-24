@@ -28,3 +28,8 @@ if query:
         if exact_results:
             st.markdown("### 🎯 Точный поиск по ключевому слову:")
             for phrase, topics in exact_results:
+                st.markdown(f"- **{phrase}** → {', '.join(topics)}")
+        elif len(query.strip()) <= 5:
+            st.info("❗ Точных совпадений по короткому слову не найдено.")
+    except Exception as e:
+        st.error(f"Произошла ошибка: {e}")
