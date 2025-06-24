@@ -4,29 +4,20 @@ import re
 from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
-# Загружаем модель (можно заменить на более мощную, если ресурс позволяет)
 model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
-# Ссылки на Excel-файлы
 GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
     "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
-# Словарь синонимов (можно дополнять)
 SYNONYMS = {
-    "симка": "сим-карта",
-    "симка": "симкарта",
-    "сим-карта": "симкарта",
-    "сим": "симкарта",
-    "сим-карта": "симкарта",
+    "симка": "симкарта", "симки": "симкарта", "сим-карта": "симкарта", "сим-карты": "симкарта",
     "кредитка": "кредитная карта",
-    "пэй": "пей",
-    "пэй": "pay",
+    "пэй": "оплата", "пей": "оплата",
     "заявление": "претензия",
-    "несанкционированное списание": "несанкционированное снятие",
-    "списание": "снятие"
+    "несанкционированное списание": "несанкционированное снятие", "списание": "снятие"
 }
 
 def apply_synonyms(text):
@@ -47,11 +38,9 @@ def load_excel(url):
     if response.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(response.content))
-
     topic_cols = [col for col in df.columns if col.lower().startswith("topics")]
     if not topic_cols:
         raise KeyError("Не найдены колонки topics")
-
     df = df[['phrase'] + topic_cols]
     df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x.tolist() if t], axis=1)
     df['phrase_proc'] = df['phrase'].apply(preprocess)
@@ -76,6 +65,7 @@ def semantic_search(query, df, top_k=5, threshold=0.45):
 
     sims = util.pytorch_cos_sim(query_emb, phrase_embs)[0]
     results = []
+    used_indices = set()
 
     for idx, score in enumerate(sims):
         score = float(score)
@@ -83,6 +73,18 @@ def semantic_search(query, df, top_k=5, threshold=0.45):
             phrase = df.iloc[idx]['phrase']
             topics = df.iloc[idx]['topics']
             results.append((score, phrase, topics))
+            used_indices.add(idx)
 
     results.sort(key=lambda x: x[0], reverse=True)
-    return results[:top_k]
+    top_results = results[:top_k]
+
+    if len(query.strip()) <= 5:
+        exact_matches = []
+        for idx, row in df.iterrows():
+            if idx in used_indices:
+                continue
+            if re.search(rf'\b{re.escape(query.lower())}\b', row['phrase'].lower()):
+                exact_matches.append((0.999, row['phrase'], row['topics']))
+        top_results.extend(exact_matches)
+
+    return top_results
