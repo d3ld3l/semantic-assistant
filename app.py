@@ -1,30 +1,28 @@
+# app.py
 import streamlit as st
-from utils import load_all_excels, semantic_search, exact_word_match, load_synonym_groups
+from utils import load_data, semantic_search
 
-st.set_page_config(page_title="Semantic Assistant", layout="centered")
-st.title("🤖 Semantic Assistant")
+st.set_page_config(page_title="Semantic Assistant", layout="wide")
+st.title("🧠 Semantic Assistant")
 
-query = st.text_input("Введите ваш запрос:")
+uploaded_file = st.file_uploader("Загрузите Excel-файл с базой", type=[".xlsx"])
 
-if query:
-    try:
-        df = load_all_excels()
-        synonym_groups = load_synonym_groups()
+if uploaded_file:
+    df, embeddings = load_data(uploaded_file)
 
-        sem_results = semantic_search(query, df, synonym_groups)
-        exact_results = exact_word_match(query, df, synonym_groups)
+    query = st.text_input("Введите ваш запрос:")
 
-        if sem_results:
-            st.markdown("### 🔎 Семантические результаты:")
-            for score, phrase, topics in sem_results:
-                st.markdown(f"- **{phrase}** → {', '.join(topics)} (_{score:.2f}_)")
-        else:
-            st.info("Семантических совпадений не найдено.")
+    if query:
+        semantic_results, keyword_matches = semantic_search(query, df, embeddings)
 
-        if exact_results:
-            st.markdown("---")
-            st.markdown("### 🎯 Точный поиск по ключевым словам:")
-            for phrase, topics in exact_results:
-                st.markdown(f"- **{phrase}** → {', '.join(topics)}")
-    except Exception as e:
-        st.error(f"Ошибка: {e}")
+        if semantic_results:
+            st.markdown("### 🔍 Семантические результаты:")
+            for item in semantic_results:
+                st.markdown(f"- **{item['text']}** → {item['label']} (_{item['code']}_) ({item['score']:.2f})")
+
+        if keyword_matches:
+            st.markdown("### 🧩 Ключевые совпадения (точные слова):")
+            for item in keyword_matches:
+                st.markdown(f"- **{item['text']}** → {item['label']} (_{item['code']}_)")
+else:
+    st.info("Пожалуйста, загрузите файл Excel.")
