@@ -4,3 +4,4 @@ requests
 openpyxl
 sentence-transformers
 torch
+pymorphy2
