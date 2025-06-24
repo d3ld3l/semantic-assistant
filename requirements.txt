@@ -3,5 +3,6 @@ pandas
 requests
 openpyxl
 sentence-transformers
+scikit-learn
 torch
-pymorphy2
+nltk
