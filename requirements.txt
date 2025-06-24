@@ -1,7 +1,6 @@
 streamlit
 pandas
 requests
-openpyxl
 sentence-transformers
 torch
-scikit-learn
+openpyxl
