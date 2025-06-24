@@ -6,7 +6,7 @@ from io import BytesIO
 from sentence_transformers import SentenceTransformer, util
 
 # Загружаем более умную модель
-model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+model = SentenceTransformer("paraphrase-multilingual-mpnet-base-v2")
 
 # Ссылки на Excel-файлы
 GITHUB_CSV_URLS = [
