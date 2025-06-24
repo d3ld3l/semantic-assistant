@@ -13,13 +13,10 @@ GITHUB_CSV_URLS = [
 ]
 
 SYNONYMS = {
-    "сим": "симка", 
-    "симка": "симкарта", 
-    "симки": "симкарта", 
-    "сим-карта": "симкарта", 
-    "сим-карты": "сим",
+    "симка": "симкарта", "симки": "симкарта", "сим-карта": "симкарта", "сим-карты": "симкарта", "сим": "симка",
     "кредитка": "кредитная карта",
-    "пэй": "оплата", "пей",
+    "пэй": "оплата", "пей": "оплата",
+    "заявление": "претензия",
     "несанкционированное списание": "несанкционированное снятие", "списание": "снятие"
 }
 
@@ -68,8 +65,8 @@ def semantic_search(query, df, top_k=5, threshold=0.45):
 
     sims = util.pytorch_cos_sim(query_emb, phrase_embs)[0]
     results = []
-    used_indices = set()
 
+    used_indices = set()
     for idx, score in enumerate(sims):
         score = float(score)
         if score >= threshold:
@@ -81,13 +78,14 @@ def semantic_search(query, df, top_k=5, threshold=0.45):
     results.sort(key=lambda x: x[0], reverse=True)
     top_results = results[:top_k]
 
+    # ➕ Дополнительный точный поиск для коротких слов
     if len(query.strip()) <= 5:
         exact_matches = []
         for idx, row in df.iterrows():
             if idx in used_indices:
                 continue
             if re.search(rf'\b{re.escape(query.lower())}\b', row['phrase'].lower()):
-                exact_matches.append((0.999, row['phrase'], row['topics']))
+                exact_matches.append((0.999, row['phrase'], row['topics']))  # score = почти 1
         top_results.extend(exact_matches)
 
     return top_results
