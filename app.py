@@ -1,49 +1,43 @@
 # app.py
 import streamlit as st
-from utils import load_all_excels, semantic_search, exact_word_match, highlight_answer
+from utils import load_all_excels, semantic_search, exact_match_results
 import time
 
-st.set_page_config(page_title="Семантический помощник", layout="wide")
+st.set_page_config(page_title="🔍 Semantic Assistant", layout="wide")
 
-# Загрузка данных
-with st.spinner("Загрузка базы данных..."):
-    try:
-        df = load_all_excels()
-        st.success("✅ Данные успешно загружены!")
-    except Exception as e:
-        st.error(f"Ошибка при загрузке данных: {e}")
-        st.stop()
+st.title("🔍 Semantic Assistant")
+st.markdown("Введите запрос, и помощник найдет релевантные темы из Excel-файлов.")
 
-# Заголовок
-st.title("🤖 Семантический помощник")
-st.markdown("Введите фразу, и помощник найдет соответствующие темы:")
+@st.cache_data(show_spinner="Загружаю данные...")
+def load_data():
+    return load_all_excels()
 
-# Ввод пользователем
-query = st.text_input("Ваш запрос:")
+try:
+    df = load_data()
+except Exception as e:
+    st.error(f"Ошибка при загрузке данных: {e}")
+    st.stop()
+
+query = st.text_input("Введите фразу:")
 
 if query:
-    with st.spinner("🔎 Выполняется поиск..."):
-        time.sleep(0.5)
+    with st.spinner("🔎 Ищу похожие фразы..."):
+        time.sleep(0.3)  # задержка для UX
+        results = semantic_search(query, df)
+        exact_matches = exact_match_results(query, df)
 
-        # Основной семантический поиск
-        semantic_results = semantic_search(query, df)
+    if not results and not exact_matches:
+        st.warning("Ничего не найдено.")
+    else:
+        st.markdown("### 🔹 Результаты семантического поиска:")
+        for score, phrase, topics in results:
+            phrase_html = f"<b style='color: #005bbb;'>{phrase}</b>"
+            topics_html = ", ".join(topics)
+            st.markdown(f"• {phrase_html} — <span style='color:gray'>{topics_html}</span>", unsafe_allow_html=True)
 
-        # Точный поиск по короткому слову (до 8 символов)
-        extra_matches = exact_word_match(query, df, max_len=8)
-
-        # Объединение результатов и удаление дубликатов
-        phrases_seen = set()
-        all_results = []
-
-        for score, phrase, topics in semantic_results + extra_matches:
-            if phrase not in phrases_seen:
-                all_results.append((score, phrase, topics))
-                phrases_seen.add(phrase)
-
-        if all_results:
-            st.markdown("### 🔍 Результаты поиска:")
-            for score, phrase, topics in all_results:
-                highlighted = highlight_answer(phrase, query)
-                st.markdown(f"<div style='padding:8px;margin-bottom:6px;border-radius:8px;background-color:#f5f5f5'><strong>{highlighted}</strong><br/><em>Темы:</em> {', '.join(topics)}</div>", unsafe_allow_html=True)
-        else:
-            st.warning("Не найдено релевантных результатов.")
+        if exact_matches:
+            st.markdown("### 🔸 Дополнительные точные совпадения по короткому слову:")
+            for phrase, topics in exact_matches:
+                phrase_html = f"<b style='color: #d93f0b;'>{phrase}</b>"
+                topics_html = ", ".join(topics)
+                st.markdown(f"• {phrase_html} — <span style='color:gray'>{topics_html}</span>", unsafe_allow_html=True)
