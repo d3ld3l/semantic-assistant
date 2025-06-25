@@ -1,3 +1,4 @@
+# Обновлённый utils.py с учётом разделения фраз по слэшу и учётом синонимов для точного поиска
 import pandas as pd
 import requests
 import re
@@ -12,31 +13,30 @@ GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data3.xlsx"
 ]
 
-# Словарь синонимов (взаимные)
+# Словарь взаимных синонимов
 SYNONYM_GROUPS = [
-    ["сим", "симка", "сим-карта", "сим карта", "симкарта", "симки", "симкарты", "сим-карты", "симкарте", "сим-карту"],
-    ["карта", "карточка", "картой", "карточку"],
-    ["наличные", "наличка"],
+    ["симка", "сим-карта", "сим карта", "сим", "симкарта", "сим-карты", "симкарты", "симке", "симки", "сим-карту"],
     ["кредитка", "кредитная карта"],
-    ["оплатить", "совершить оплату", "провести оплату", "произвести оплату", "осуществить оплату"],
+    ["наличные", "наличка"]
 ]
 
-# Расширим до словарь: любое слово → его базовая форма
-SYNONYM_MAP = {}
+# Создание словаря замен
+SYNONYM_DICT = {}
 for group in SYNONYM_GROUPS:
     for word in group:
-        for synonym in group:
-            SYNONYM_MAP[synonym] = group[0]
-
-def apply_synonyms(text):
-    words = text.split()
-    return " ".join([SYNONYM_MAP.get(word, word) for word in words])
+        SYNONYM_DICT[word] = group[0]  # Назначаем первое как базовое значение
 
 def preprocess(text):
     text = str(text).lower().strip()
     text = re.sub(r"\s+", " ", text)
-    text = apply_synonyms(text)
+    # Заменяем синонимы на базовые слова
+    for key, val in SYNONYM_DICT.items():
+        pattern = r"\\b" + re.escape(key) + r"\\b"
+        text = re.sub(pattern, val, text)
     return text
+
+def split_slash_phrases(phrase):
+    return [p.strip() for p in str(phrase).split("/") if p.strip()]
 
 def load_excel(url):
     response = requests.get(url)
@@ -48,10 +48,18 @@ def load_excel(url):
     if not topic_cols:
         raise KeyError("Не найдены колонки topics")
 
-    df = df[['phrase'] + topic_cols]
-    df['topics'] = df[topic_cols].fillna('').agg(lambda x: [t for t in x if pd.notna(t)], axis=1)
-    df['phrase_proc'] = df['phrase'].apply(lambda x: preprocess(str(x)))
-    return df[['phrase', 'phrase_proc', 'topics']]
+    phrases = []
+    for _, row in df.iterrows():
+        raw_phrases = split_slash_phrases(row['phrase'])
+        topics = [t for t in row[topic_cols].fillna('').tolist() if t]
+        for phrase in raw_phrases:
+            phrases.append({
+                'phrase': phrase,
+                'phrase_proc': preprocess(phrase),
+                'topics': topics
+            })
+
+    return pd.DataFrame(phrases)
 
 def load_all_excels():
     dfs = []
@@ -83,12 +91,20 @@ def semantic_search(query, df, top_k=5, threshold=0.5):
     results.sort(key=lambda x: x[0], reverse=True)
     return results[:top_k]
 
-def keyword_search(query, df):
-    query_words = preprocess(query).split()
-    short_words = [word for word in query_words if len(word) <= 5]
-    matched = []
-    for _, row in df.iterrows():
-        phrase_words = row['phrase_proc'].split()
-        if any(word in phrase_words for word in short_words):
-            matched.append((row['phrase'], row['topics']))
-    return matched
+def exact_keyword_search(query, df, max_len=5):
+    words = preprocess(query).split()
+    found = set()
+    matches = []
+
+    for word in words:
+        if len(word) > max_len:
+            continue
+        # Приводим к базовой форме по словарю синонимов
+        base = SYNONYM_DICT.get(word, word)
+        for idx, row in df.iterrows():
+            if base in row['phrase_proc']:
+                key = (row['phrase'], tuple(row['topics']))
+                if key not in found:
+                    matches.append((row['phrase'], row['topics']))
+                    found.add(key)
+    return matches
