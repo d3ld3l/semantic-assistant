@@ -22,28 +22,42 @@ SYNONYMS = {
     "утеряна": ["потеряна", "потерял", "пропала"],
     "оплатить": ["совершить оплату", "провести оплату", "произвести оплату", "осуществить оплату"],
     "не могу": ["не получается", "не проводится", "не производится", "не осуществляется", "не проходит"],
-    "не проходит оплата": ["не получается оплатить", "не проводится оплата", "не производится оплата", "не осуществляется оплата", "не могу совершить оплату" , "не совершается оплата" ],
-    
+    "не проходит оплата": ["не получается оплатить", "не проводится оплата", "не производится оплата", "не осуществляется оплата", "не могу совершить оплату", "не совершается оплата"],
     "какую сумму": ["сколько"]
 }
 
-# Расширить синонимы до обратного отображения
-NORMALIZED_SYNONYMS = {}
+# Разделение на фразовые и словарные синонимы
+PHRASE_SYNONYMS = {}
+WORD_SYNONYMS = {}
+
 for key, values in SYNONYMS.items():
     for val in values:
-        NORMALIZED_SYNONYMS[val] = key
-    NORMALIZED_SYNONYMS[key] = key
+        if ' ' in val or ' ' in key:
+            PHRASE_SYNONYMS[val] = key
+        else:
+            WORD_SYNONYMS[val] = key
+    if ' ' in key:
+        PHRASE_SYNONYMS[key] = key
+    else:
+        WORD_SYNONYMS[key] = key
 
 # Преобразование слова к нормальной форме + синоним
 def normalize_word(word):
     base = morph.parse(word)[0].normal_form
-    return NORMALIZED_SYNONYMS.get(base, base)
+    return WORD_SYNONYMS.get(base, base)
 
 # Нормализация текста
 def preprocess(text):
     text = str(text).lower().strip()
     text = re.sub(r"[\-]", " ", text)
     text = re.sub(r"\s+", " ", text)
+
+    # Сначала заменить фразовые синонимы
+    for phrase, replacement in sorted(PHRASE_SYNONYMS.items(), key=lambda x: -len(x[0].split())):
+        pattern = re.escape(phrase)
+        text = re.sub(rf"\b{pattern}\b", replacement, text)
+
+    # Затем нормализовать отдельные слова
     words = text.split()
     norm_words = [normalize_word(word) for word in words]
     return " ".join(norm_words)
@@ -99,7 +113,7 @@ def exact_keyword_search(query, df):
     syns = set()
     for kw in keywords:
         key = normalize_word(kw)
-        syns.update([key] + [k for k, v in NORMALIZED_SYNONYMS.items() if v == key])
+        syns.update([key] + [k for k, v in WORD_SYNONYMS.items() if v == key])
 
     matched = []
     for _, row in df.iterrows():
