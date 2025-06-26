@@ -29,9 +29,9 @@ for group in SYNONYM_GROUPS:
 
 # Ссылки на Excel-файлы
 GITHUB_CSV_URLS = [
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data1.xlsx",
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data2.xlsx",
-    "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data3.xlsx"
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data1.xlsx",
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data2.xlsx",
+    "https://raw.githubusercontent.com/d3ld3l/semantic-assistant/main/data3.xlsx"
 ]
 
 # Нормализация строки
